@@ -1,670 +1,341 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 
 const apiUrl = "http://localhost:4000/api/dashboard";
-const nodeSize = { width: 180, height: 92 };
-const canvasSize = { width: 1000, height: 680 };
+const CANVAS = { width: 1400, height: 800 };
 
-function buildForceLayout(nodes, edges, width, height) {
-  const positions = new Map(
-    nodes.map((node, index) => [
-      node.id,
-      {
-        ...node,
-        px: (node.x / 100) * width,
-        py: (node.y / 100) * height,
-        vx: 0,
-        vy: 0,
-        angle: (index / Math.max(nodes.length, 1)) * Math.PI * 2,
-      },
-    ]),
-  );
-
+function buildSwarmLayout(nodes, width, height) {
   const centerX = width / 2;
   const centerY = height / 2;
+  const baseRadius = Math.min(width, height) * 0.28;
+  
+  const thoughtNodes = nodes.filter(n => n.nodeType === 'thought');
+  const eventNodes = nodes.filter(n => n.nodeType === 'event');
+  
+  let layout = [];
+  
+  thoughtNodes.forEach((node, i) => {
+    const angle = (i / Math.max(thoughtNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    const r = baseRadius * 0.7 + Math.random() * 60;
+    layout.push({
+      ...node,
+      x: centerX + Math.cos(angle) * r + (Math.random() - 0.5) * 80,
+      y: centerY + Math.sin(angle) * r * 0.6 + (Math.random() - 0.5) * 60,
+      vx: 0,
+      vy: 0,
+    });
+  });
+  
+  eventNodes.forEach((node, i) => {
+    const angle = (i / Math.max(eventNodes.length, 1)) * Math.PI * 2 + Math.PI / 4;
+    const r = baseRadius * 1.1 + Math.random() * 40;
+    layout.push({
+      ...node,
+      x: centerX + Math.cos(angle) * r + (Math.random() - 0.5) * 60,
+      y: centerY + Math.sin(angle) * r * 0.7 + (Math.random() - 0.5) * 50,
+      vx: 0,
+      vy: 0,
+    });
+  });
+  
+  return layout;
+}
 
-  for (let step = 0; step < 160; step += 1) {
+function runPhysics(nodes, edges, width, height, iterations = 120) {
+  const positions = new Map(nodes.map(n => [n.id, { ...n }]));
+  
+  for (let iter = 0; iter < iterations; iter++) {
     const items = [...positions.values()];
-
-    items.forEach((node) => {
-      let forceX = 0;
-      let forceY = 0;
-
-      items.forEach((other) => {
-        if (other.id === node.id) {
-          return;
-        }
-
-        const dx = node.px - other.px;
-        const dy = node.py - other.py;
-        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-        const repulsion = 8200 / (distance * distance);
-        forceX += (dx / distance) * repulsion;
-        forceY += (dy / distance) * repulsion;
+    
+    items.forEach(node => {
+      let fx = 0, fy = 0;
+      
+      items.forEach(other => {
+        if (other.id === node.id) return;
+        const dx = node.x - other.x;
+        const dy = node.y - other.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = 6000 / (dist * dist);
+        fx += (dx / dist) * force;
+        fy += (dy / dist) * force;
       });
-
-      const orbitRadius = node.nodeType === "thought" ? 170 : 245;
-      const orbitX = centerX + Math.cos(node.angle) * orbitRadius;
-      const orbitY = centerY + Math.sin(node.angle) * orbitRadius * 0.72;
-      forceX += (orbitX - node.px) * 0.018;
-      forceY += (orbitY - node.py) * 0.018;
-
-      edges?.forEach((edge) => {
-        if (edge.source !== node.id && edge.target !== node.id) {
-          return;
-        }
-
+      
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const toCenterX = (centerX - node.x) * 0.008;
+      const toCenterY = (centerY - node.y) * 0.008;
+      fx += toCenterX;
+      fy += toCenterY;
+      
+      edges.forEach(edge => {
+        if (edge.source !== node.id && edge.target !== node.id) return;
         const otherId = edge.source === node.id ? edge.target : edge.source;
         const other = positions.get(otherId);
-        if (!other) {
-          return;
-        }
-
-        const dx = other.px - node.px;
-        const dy = other.py - node.py;
-        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-        const attraction = (distance - 180) * 0.014;
-        forceX += (dx / distance) * attraction;
-        forceY += (dy / distance) * attraction;
+        if (!other) return;
+        const dx = other.x - node.x;
+        const dy = other.y - node.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const attract = (dist - 200) * 0.012;
+        fx += (dx / dist) * attract;
+        fy += (dy / dist) * attract;
       });
-
-      node.vx = (node.vx + forceX) * 0.84;
-      node.vy = (node.vy + forceY) * 0.84;
+      
+      const pos = positions.get(node.id);
+      pos.vx = (pos.vx + fx) * 0.82;
+      pos.vy = (pos.vy + fy) * 0.82;
     });
-
-    items.forEach((node) => {
-      node.px = Math.min(
-        width - nodeSize.width / 2 - 26,
-        Math.max(nodeSize.width / 2 + 26, node.px + node.vx),
-      );
-      node.py = Math.min(
-        height - nodeSize.height / 2 - 26,
-        Math.max(nodeSize.height / 2 + 26, node.py + node.vy),
-      );
+    
+    items.forEach(node => {
+      const pos = positions.get(node.id);
+      pos.x = Math.max(80, Math.min(width - 80, pos.x + pos.vx));
+      pos.y = Math.max(80, Math.min(height - 80, pos.y + pos.vy));
     });
   }
-
-  return nodes.map((node) => {
-    const positioned = positions.get(node.id);
-    return {
-      ...node,
-      px: positioned.px,
-      py: positioned.py,
-    };
+  
+  return nodes.map(n => {
+    const p = positions.get(n.id);
+    return { ...n, x: p.x, y: p.y };
   });
 }
 
-function InsightCard({ title, subtitle, value }) {
+function InsightCard({ title, value, color }) {
   return (
-    <div className="card stat-card">
-      <p className="eyebrow">{subtitle}</p>
-      <h3>{title}</h3>
-      <strong>{value}</strong>
+    <div className="stat-pill">
+      <span className="stat-label">{title}</span>
+      <span className="stat-value" style={{ color }}>{value}</span>
     </div>
   );
 }
 
-function MiniMap({ nodes, selectedNodeId, onSelectNode }) {
+function NodePanel({ node, onClose }) {
+  if (!node) return null;
+  
   return (
-    <div className="minimap">
-      <div className="minimap-header">
-        <p className="eyebrow">Mini map</p>
-        <span>Constellation overview</span>
+    <div className="node-inspector">
+      <button className="inspector-close" onClick={onClose}>✕</button>
+      <div className="inspector-badge">
+        <span className={`badge-pill ${node.nodeType}`}>{node.nodeType}</span>
       </div>
-      <div className="minimap-canvas">
-        <svg viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`} preserveAspectRatio="none">
-          {nodes.map((node) => (
-            <circle
-              key={node.id}
-              cx={node.px}
-              cy={node.py}
-              r={node.id === selectedNodeId ? 12 : 8}
-              className={node.id === selectedNodeId ? `minimap-dot ${node.nodeType} active` : `minimap-dot ${node.nodeType}`}
-              onClick={() => onSelectNode(node.id)}
-            />
-          ))}
-        </svg>
-      </div>
-    </div>
-  )
-}
-
-function NodeDetails({ selectedNode }) {
-  if (!selectedNode) {
-    return (
-      <div className="node-empty">
-        <p className="eyebrow">Inspector</p>
-        <h2>Select a node</h2>
-        <p>
-          Click a thought or schedule node in the network to inspect its
-          connected memory.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="node-details">
-      <p className="eyebrow">Node inspector</p>
-      <h2>{selectedNode.label}</h2>
-      <div className="chip-row">
-        <span className="chip">{selectedNode.nodeType}</span>
-        <span className="chip">{selectedNode.category}</span>
-      </div>
-      <p className="node-timestamp">
-        {new Date(selectedNode.timestamp).toLocaleString()}
-      </p>
-      <div className="stack">
-        {Object.entries(selectedNode.details || {}).map(([key, value]) => {
-          if (
-            value === null ||
-            value === undefined ||
-            value === "" ||
-            (Array.isArray(value) && value.length === 0)
-          ) {
-            return null;
-          }
-
-          return (
-            <div className="detail-row" key={key}>
-              <span>{key.replace(/([A-Z])/g, " $1")}</span>
-              <strong>
-                {Array.isArray(value) ? value.join(", ") : String(value)}
-              </strong>
+      <h3 className="inspector-title">{node.label}</h3>
+      <p className="inspector-category">{node.category}</p>
+      
+      <div className="inspector-body">
+        {node.nodeType === 'thought' && node.details && (
+          <>
+            <div className="inspector-row">
+              <span className="label">Content</span>
+              <span className="value">{node.details.content}</span>
             </div>
-          );
-        })}
+            <div className="inspector-metrics">
+              <div className="metric"><span>Mood</span><strong>{node.details.mood}</strong></div>
+              <div className="metric"><span>Energy</span><strong>{node.details.energyLevel}/10</strong></div>
+              <div className="metric"><span>Focus</span><strong>{node.details.focusLevel}/10</strong></div>
+            </div>
+          </>
+        )}
+        {node.nodeType === 'event' && node.details && (
+          <>
+            <div className="inspector-row">
+              <span className="label">Description</span>
+              <span className="value">{node.details.description}</span>
+            </div>
+            <div className="inspector-row">
+              <span className="label">Location</span>
+              <span className="value">{node.details.location}</span>
+            </div>
+          </>
+        )}
       </div>
+      <p className="inspector-time">
+        {node.timestamp ? new Date(node.timestamp).toLocaleString() : 'No timestamp'}
+      </p>
     </div>
   );
 }
 
-function App() {
+export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [error, setError] = useState(null);
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [hovered, setHovered] = useState(null);
+  const [drag, setDrag] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [draggedNodeId, setDraggedNodeId] = useState("");
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [layoutNodes, setLayoutNodes] = useState([]);
-  const canvasRef = useRef(null);
+  const [animating, setAnimating] = useState(true);
 
   useEffect(() => {
     fetch(apiUrl)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Failed to load dashboard data");
-        }
-        return response.json();
-      })
-      .then((payload) => {
+      .then(res => res.ok ? res.json() : Promise.reject('Failed'))
+      .then(payload => {
         setData(payload);
-        setLayoutNodes(
-          buildForceLayout(
-            payload.network?.nodes || [],
-            payload.network?.edges || [],
-            canvasSize.width,
-            canvasSize.height,
-          ),
-        );
-        setSelectedNodeId(payload.network?.nodes?.[0]?.id || "");
+        
+        const allNodes = [
+          ...(payload.thoughts || []).map(t => ({ 
+            id: t.id, label: t.title, nodeType: 'thought', 
+            category: t.mood, timestamp: t.timestamp, details: t 
+          })),
+          ...(payload.events || []).map(e => ({ 
+            id: e.id, label: e.title, nodeType: 'event', 
+            category: e.type, timestamp: e.start, details: e 
+          }))
+        ];
+        
+        const unique = allNodes.reduce((acc, n) => {
+          if (!acc.find(x => x.id === n.id)) acc.push(n);
+          return acc;
+        }, []);
+        
+        const initial = buildSwarmLayout(unique, CANVAS.width, CANVAS.height);
+        const positioned = runPhysics(initial, payload.network?.edges || [], CANVAS.width, CANVAS.height);
+        
+        setNodes(positioned);
+        setEdges(payload.network?.edges || []);
         setLoading(false);
       })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+      .catch(err => { setError(err.message); setLoading(false); });
   }, []);
 
-  const moodEntries = useMemo(() => {
-    if (!data?.insights?.moodBreakdown) {
-      return [];
-    }
-
-    return Object.entries(data.insights.moodBreakdown);
-  }, [data]);
-
-  const selectedNode = useMemo(() => {
-    return layoutNodes.find((node) => node.id === selectedNodeId) || null;
-  }, [layoutNodes, selectedNodeId]);
-
-  const selectedConnections = useMemo(() => {
-    if (!data?.network?.edges || !selectedNodeId) {
-      return [];
-    }
-
-    return data.network?.edges.filter(
-      (edge) =>
-        edge.source === selectedNodeId || edge.target === selectedNodeId,
-    );
-  }, [data, selectedNodeId]);
-
-  useEffect(() => {
-    const handlePointerMove = (event) => {
-      if (!draggedNodeId || !canvasRef.current) {
-        return;
+  const linkedIds = useMemo(() => {
+    if (!selected) return new Set();
+    const ids = new Set([selected.id]);
+    edges.forEach(e => {
+      if (e.source === selected.id || e.target === selected.id) {
+        ids.add(e.source); ids.add(e.target);
       }
-
-      const rect = canvasRef.current.getBoundingClientRect();
-      const nextX = (event.clientX - rect.left - pan.x - dragOffset.x) / zoom;
-      const nextY = (event.clientY - rect.top - pan.y - dragOffset.y) / zoom;
-
-      setLayoutNodes((current) =>
-        current.map((node) =>
-          node.id === draggedNodeId
-            ? {
-                ...node,
-                px: Math.min(
-                  canvasSize.width - nodeSize.width / 2 - 20,
-                  Math.max(nodeSize.width / 2 + 20, nextX),
-                ),
-                py: Math.min(
-                  canvasSize.height - nodeSize.height / 2 - 20,
-                  Math.max(nodeSize.height / 2 + 20, nextY),
-                ),
-              }
-            : node,
-        ),
-      );
-    };
-
-    const handlePointerUp = () => {
-      setDraggedNodeId("");
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [dragOffset.x, dragOffset.y, draggedNodeId, pan.x, pan.y, zoom]);
-
-  const connectedNodeIds = useMemo(() => {
-    const ids = new Set([selectedNodeId]);
-    selectedConnections.forEach((edge) => {
-      ids.add(edge.source);
-      ids.add(edge.target);
     });
     return ids;
-  }, [selectedConnections, selectedNodeId]);
+  }, [selected, edges]);
 
-  useEffect(() => {
-    if (!layoutNodes.length || draggedNodeId) {
-      return undefined;
+  const handleMouseDown = useCallback((e, node) => {
+    e.stopPropagation();
+    setDrag(node.id);
+    setDragOffset({ x: e.clientX, y: e.clientY });
+    setSelected(node);
+  }, []);
+
+  const handleMouseMove = useCallback((e) => {
+    if (!drag) return;
+    const dx = (e.clientX - dragOffset.x) / zoom;
+    const dy = (e.clientY - dragOffset.y) / zoom;
+    setNodes(prev => prev.map(n => n.id === drag ? { ...n, x: n.x + dx, y: n.y + dy } : n));
+    setDragOffset({ x: e.clientX, y: e.clientY });
+  }, [drag, dragOffset, zoom]);
+
+  const handleMouseUp = useCallback(() => setDrag(null), []);
+
+  const handleCanvasClick = (e) => {
+    if (e.target.classList.contains('network-canvas') || e.target.tagName === 'svg') {
+      setSelected(null);
     }
+  };
 
-    const animate = window.setInterval(() => {
-      setLayoutNodes((currentNodes) => {
-        if (!currentNodes.length) {
-          return currentNodes;
-        }
+  const handleZoom = (dir) => setZoom(z => Math.max(0.5, Math.min(2, z + dir * 0.15)));
+  const handleReset = () => { setPan({ x: 0, y: 0 }); setZoom(1); };
 
-        const jittered = currentNodes.map((node, index) => {
-          const waveX = Math.sin(Date.now() / 1200 + index) * 0.55;
-          const waveY = Math.cos(Date.now() / 1500 + index * 1.2) * 0.45;
-          return {
-            ...node,
-            px: Math.min(
-              canvasSize.width - nodeSize.width / 2 - 20,
-              Math.max(nodeSize.width / 2 + 20, node.px + waveX),
-            ),
-            py: Math.min(
-              canvasSize.height - nodeSize.height / 2 - 20,
-              Math.max(nodeSize.height / 2 + 20, node.py + waveY),
-            ),
-          };
-        });
-
-        if (data?.network?.edges?.length) {
-          return buildForceLayout(jittered, data.network.edges, canvasSize.width, canvasSize.height);
-        }
-
-        return jittered;
-      });
-    }, 1800);
-
-    return () => window.clearInterval(animate);
-  }, [data, draggedNodeId, layoutNodes.length]);
-
-  const clusterGroups = useMemo(() => {
-    const groups = new Map();
-
-    layoutNodes.forEach((node) => {
-      const key = node.nodeType === 'thought' ? `Mood: ${node.category}` : `Schedule: ${node.category}`;
-      if (!groups.has(key)) {
-        groups.set(key, []);
-      }
-      groups.get(key).push(node.id);
-    });
-
-    return [...groups.entries()];
-  }, [layoutNodes]);
-
-  if (loading) {
-    return (
-      <div className="screen-state">Booting your life operating system…</div>
-    );
-  }
-
-  if (error) {
-    return <div className="screen-state error">{error}</div>;
-  }
+  if (loading) return <div className="loader"><div className="loader-ring" /><span>Initializing LifeOS...</span></div>;
+  if (error) return <div className="loader error">Error: {error}</div>;
 
   return (
-    <main className="app-shell">
-      <section className="hero card">
-        <p className="eyebrow">Orbit Control</p>
-        <h1>Welcome back, {data.profile.name}.</h1>
-        <p className="hero-copy">
-          Explore your day as an interactive thought network where journal
-          entries and calendar schedules become connected nodes in your life
-          operating system.
-        </p>
-        <div className="chip-row">
-          {data.profile.connectedSources.map((source) => (
-            <span key={source} className="chip">
-              {source}
-            </span>
-          ))}
-          <span className="chip">Timezone: {data.profile.timezone}</span>
+    <div className="lifeos" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+      <header className="top-bar">
+        <div className="brand">
+          <span className="brand-icon">◈</span>
+          <h1>LifeOS</h1>
         </div>
+        <div className="user-info">
+          <span className="user-name">{data?.profile?.name}</span>
+          <span className="user-sources">{data?.profile?.connectedSources?.join(' · ')}</span>
+        </div>
+      </header>
+
+      <section className="metrics-bar">
+        <InsightCard title="Energy" value={data?.insights?.averageEnergy || 0} color="#ff8855" />
+        <InsightCard title="Focus" value={data?.insights?.averageFocus || 0} color="#4a9eff" />
+        <InsightCard title="Thoughts" value={data?.thoughts?.length || 0} color="#a855f7" />
+        <InsightCard title="Events" value={data?.events?.length || 0} color="#44dd88" />
       </section>
 
-      <section className="stats-grid">
-        <InsightCard
-          title="Average Energy"
-          subtitle="Daily rhythm"
-          value={data.insights.averageEnergy}
-        />
-        <InsightCard
-          title="Average Focus"
-          subtitle="Work quality"
-          value={data.insights.averageFocus}
-        />
-        <InsightCard
-          title="Thought Nodes"
-          subtitle="Journal graph"
-          value={data.thoughts.length}
-        />
-        <InsightCard
-          title="Schedule Nodes"
-          subtitle="Calendar graph"
-          value={data.events.length}
-        />
-      </section>
-
-      <section className="network-layout">
-        <div className="card network-panel">
-          <div className="network-header">
-            <div>
-              <p className="eyebrow">Interactive network</p>
-              <h2>Thought and schedule constellation</h2>
-            </div>
-            <p className="network-copy">
-              Select a node to reveal the details and connected memories.
-            </p>
-          </div>
-
-          <div className="network-toolbar">
-            <div className="chip-row toolbar-chips">
-              <button
-                type="button"
-                className="toolbar-button"
-                onClick={() =>
-                  setZoom((current) =>
-                    Math.min(1.8, Number((current + 0.1).toFixed(2))),
-                  )
-                }
-              >
-                Zoom in
-              </button>
-              <button
-                type="button"
-                className="toolbar-button"
-                onClick={() =>
-                  setZoom((current) =>
-                    Math.max(0.7, Number((current - 0.1).toFixed(2))),
-                  )
-                }
-              >
-                Zoom out
-              </button>
-              <button
-                type="button"
-                className="toolbar-button"
-                onClick={() => {
-                  setPan({ x: 0, y: 0 });
-                  setZoom(1);
-                }}
-              >
-                Reset view
-              </button>
-            </div>
-            <p className="muted-copy">
-              Drag nodes to rearrange the constellation. Shift the view with the
-              orbit controls.
-            </p>
-          </div>
-
-          <div className="orbit-controls">
-            <button
-              type="button"
-              className="orbit-button"
-              onClick={() =>
-                setPan((current) => ({ ...current, y: current.y + 28 }))
-              }
-            >
-              ↑
-            </button>
-            <div className="orbit-row">
-              <button
-                type="button"
-                className="orbit-button"
-                onClick={() =>
-                  setPan((current) => ({ ...current, x: current.x + 28 }))
-                }
-              >
-                ←
-              </button>
-              <button
-                type="button"
-                className="orbit-button"
-                onClick={() =>
-                  setPan((current) => ({ ...current, x: current.x - 28 }))
-                }
-              >
-                →
-              </button>
-            </div>
-            <button
-              type="button"
-              className="orbit-button"
-              onClick={() =>
-                setPan((current) => ({ ...current, y: current.y - 28 }))
-              }
-            >
-              ↓
-            </button>
-          </div>
-
-          <div className="network-canvas" ref={canvasRef}>
-            <div className="network-stars" />
-            <div
-              className="network-stage"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                width: `${canvasSize.width}px`,
-                height: `${canvasSize.height}px`,
-              }}
-            >
-              <svg
-                className="network-lines"
-                viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
-                preserveAspectRatio="none"
-              >
-                {data.network?.edges.map((edge) => {
-                  const source = layoutNodes.find(
-                    (node) => node.id === edge.source,
-                  );
-                  const target = layoutNodes.find(
-                    (node) => node.id === edge.target,
-                  );
-
-                  if (!source || !target) {
-                    return null;
-                  }
-
-                  const isActive = selectedConnections.some(
-                    (connection) => connection.id === edge.id,
-                  );
-
-                  return (
-                    <line
-                      key={edge.id}
-                      x1={source.px}
-                      y1={source.py}
-                      x2={target.px}
-                      y2={target.py}
-                      className={
-                        isActive ? "network-edge active" : "network-edge"
-                      }
-                    />
-                  );
-                })}
-              </svg>
-
-              {layoutNodes.map((node) => {
-                const isSelected = node.id === selectedNodeId;
-                const isConnected = connectedNodeIds.has(node.id);
-
-                return (
-                  <button
-                    key={node.id}
-                    type="button"
-                    className={`network-node ${node.nodeType} ${isSelected ? "selected" : ""} ${isConnected ? "connected" : ""}`}
-                    style={{ left: `${node.px}px`, top: `${node.py}px` }}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      setSelectedNodeId(node.id);
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      setDraggedNodeId(node.id);
-                      setDragOffset({
-                        x: event.clientX - rect.left - rect.width / 2,
-                        y: event.clientY - rect.top - rect.height / 2,
-                      });
-                    }}
-                  >
-                    <span className="network-node-type">{node.nodeType}</span>
-                    <strong>{node.label}</strong>
-                    <small>{node.category}</small>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+      <section className="network-section">
+        <div className="network-controls">
+          <button onClick={() => handleZoom(1)}>+</button>
+          <button onClick={() => handleZoom(-1)}>−</button>
+          <button onClick={handleReset}>⟲</button>
         </div>
+        
+        <div className="network-canvas" onClick={handleCanvasClick}>
+          <div className="swarm-bg" />
+          
+          <svg className="edges-layer" width={CANVAS.width} height={CANVAS.height}>
+            <defs>
+              <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#4a9eff" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#a855f7" stopOpacity="0.15" />
+              </linearGradient>
+              <filter id="glow"><feGaussianBlur stdDeviation="3" result="colored"/><feMerge><feMergeNode in="colored"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            {edges.map(edge => {
+              const src = nodes.find(n => n.id === edge.source);
+              const tgt = nodes.find(n => n.id === edge.target);
+              if (!src || !tgt) return null;
+              const isLinked = selected && linkedIds.has(edge.source) && linkedIds.has(edge.target);
+              return (
+                <line key={edge.id} x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                  className={`swarm-edge ${isLinked ? 'active' : ''}`} />
+              );
+            })}
+          </svg>
 
-        <aside className="card inspector-panel">
-          <MiniMap
-            nodes={layoutNodes}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={setSelectedNodeId}
-          />
-
-          <div className="cluster-panel">
-            <p className="eyebrow">Clusters</p>
-            <h3>Grouped by mood and schedule type</h3>
-            <div className="stack">
-              {clusterGroups.map(([label, ids]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className="connection-card"
-                  onClick={() => ids[0] && setSelectedNodeId(ids[0])}
+          <div className="nodes-layer" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+            {nodes.map(node => {
+              const isSelected = selected?.id === node.id;
+              const isLinked = linkedIds.has(node.id);
+              const isDimmed = selected && !isLinked;
+              
+              return (
+                <div key={node.id}
+                  className={`swarm-node ${node.nodeType} ${isSelected ? 'selected' : ''} ${isLinked ? 'linked' : ''} ${isDimmed ? 'dimmed' : ''}`}
+                  style={{ left: node.x, top: node.y }}
+                  onClick={e => { e.stopPropagation(); setSelected(node); }}
+                  onMouseDown={e => handleMouseDown(e, node)}
+                  onMouseEnter={() => setHovered(node.id)}
+                  onMouseLeave={() => setHovered(null)}
                 >
-                  <span>{label}</span>
-                  <strong>{ids.length} nodes</strong>
-                </button>
-              ))}
-            </div>
+                  <div className="node-glow" />
+                  <div className="node-core">
+                    <span className="node-type">{node.nodeType}</span>
+                    <span className="node-label">{node.label}</span>
+                    <span className="node-cat">{node.category}</span>
+                  </div>
+                  {isSelected && <div className="node-ring" />}
+                </div>
+              );
+            })}
           </div>
+        </div>
 
-          <NodeDetails selectedNode={selectedNode} />
-
-          <div className="connection-panel">
-            <p className="eyebrow">Connections</p>
-            <h3>Linked memories</h3>
-            <div className="stack">
-              {selectedConnections.length ? (
-                selectedConnections.map((edge) => {
-                  const relatedNode = layoutNodes.find(
-                    (node) =>
-                      node.id !== selectedNodeId &&
-                      (node.id === edge.source || node.id === edge.target),
-                  );
-                  return (
-                    <button
-                      key={edge.id}
-                      type="button"
-                      className="connection-card"
-                      onClick={() =>
-                        relatedNode && setSelectedNodeId(relatedNode.id)
-                      }
-                    >
-                      <span>{edge.relationship}</span>
-                      <strong>{relatedNode?.label || "Unknown node"}</strong>
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="muted-copy">This node has no direct links yet.</p>
-              )}
-            </div>
-          </div>
-        </aside>
+        {selected && <NodePanel node={selected} onClose={() => setSelected(null)} />}
       </section>
 
-      <section className="content-grid compact">
-        <div className="card panel span-2">
-          <p className="eyebrow">Daily narrative</p>
-          <h2>AI Summary</h2>
-          <p>{data.insights.headline}</p>
+      <section className="insights-bar">
+        <div className="insight-block">
+          <h4>AI Summary</h4>
+          <p>{data?.insights?.headline}</p>
         </div>
-
-        <div className="card panel">
-          <p className="eyebrow">Mood signals</p>
-          <h2>Mood breakdown</h2>
-          <ul className="list">
-            {moodEntries.map(([mood, count]) => (
-              <li key={mood}>
-                <span>{mood}</span>
-                <strong>{count}</strong>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="card panel span-3">
-          <p className="eyebrow">Recommendations</p>
-          <h2>Next best actions</h2>
-          <div className="stack recommendation-grid">
-            {data.insights.recommendations.map((item) => (
-              <article key={item.title} className="recommendation">
-                <span className="pill">{item.type}</span>
-                <h3>{item.title}</h3>
-                <p>{item.reason}</p>
-                <strong>{item.action}</strong>
-              </article>
+        <div className="insight-block">
+          <h4>Recommendations</h4>
+          <div className="rec-list">
+            {(data?.insights?.recommendations || []).slice(0, 3).map((r, i) => (
+              <div key={i} className="rec-chip">
+                <span className={`rec-tag ${r.type}`}>{r.type}</span>
+                <span className="rec-title">{r.title}</span>
+              </div>
             ))}
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
-
-export default App;
