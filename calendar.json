@@ -1,0 +1,116 @@
+{
+  "kind": "calendar#events",
+  "etag": "\"p33k9exampleetag\"",
+  "summary": "Debashis Calendar",
+  "updated": "2026-04-18T10:30:00.000Z",
+  "timeZone": "Asia/Kolkata",
+  "items": [
+    {
+      "kind": "calendar#event",
+      "etag": "\"event1etag\"",
+      "id": "event_001",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=event_001",
+      "created": "2026-04-17T07:00:00.000Z",
+      "updated": "2026-04-17T07:10:00.000Z",
+      "summary": "Morning Planning & Journaling",
+      "description": "Plan the day, log thoughts into system",
+      "location": "Home",
+      "creator": {
+        "email": "debashis@example.com",
+        "self": true
+      },
+      "organizer": {
+        "email": "debashis@example.com",
+        "self": true
+      },
+      "start": {
+        "dateTime": "2026-04-17T08:00:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "end": {
+        "dateTime": "2026-04-17T08:30:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "attendees": [],
+      "reminders": {
+        "useDefault": false,
+        "overrides": [{ "method": "popup", "minutes": 10 }]
+      },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"event2etag\"",
+      "id": "event_002",
+      "status": "confirmed",
+      "summary": "Deep Work: Altimate Code",
+      "description": "Work on observability tool MVP",
+      "location": "Workspace",
+      "start": {
+        "dateTime": "2026-04-17T14:00:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "end": {
+        "dateTime": "2026-04-17T16:30:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "attendees": [],
+      "reminders": {
+        "useDefault": true
+      },
+      "eventType": "focusTime"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"event3etag\"",
+      "id": "event_003",
+      "status": "confirmed",
+      "summary": "Call with Friend",
+      "description": "Catch up and discuss ideas",
+      "location": "Phone",
+      "start": {
+        "dateTime": "2026-04-17T19:00:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "end": {
+        "dateTime": "2026-04-17T20:00:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "attendees": [
+        {
+          "email": "friend@example.com",
+          "responseStatus": "accepted"
+        }
+      ],
+      "reminders": {
+        "useDefault": true
+      },
+      "eventType": "default"
+    },
+    {
+      "kind": "calendar#event",
+      "etag": "\"event4etag\"",
+      "id": "event_004",
+      "status": "confirmed",
+      "summary": "Night Reflection",
+      "description": "Review day, log thoughts, mood tracking",
+      "location": "Bedroom",
+      "start": {
+        "dateTime": "2026-04-17T23:00:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "end": {
+        "dateTime": "2026-04-17T23:30:00+05:30",
+        "timeZone": "Asia/Kolkata"
+      },
+      "attendees": [],
+      "reminders": {
+        "useDefault": false,
+        "overrides": [{ "method": "popup", "minutes": 5 }]
+      },
+      "eventType": "default"
+    }
+  ],
+  "nextPageToken": null
+}
